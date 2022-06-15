@@ -11,13 +11,15 @@ app.config['SECRET_KEY']='secret'
 app.config['SQLALCHEMY_DATABASE_URI']='postgresql://postgres:Sychrldi227@localhost:5432/db_coffeeshop' 
 
 
-order_detail = db.Table('order_detail',
-	db.Column('id', db.Integer, primary_key=True),
-	db.Column('order_id', db.Integer, db.ForeignKey('order.id'), primary_key=True),
-	db.Column('product_id', db.Integer, db.ForeignKey('products.id'), primary_key=True),
-	db.Column('public_id', db.String),
-	db.Column('quantity', db.Integer)
-)
+# order_detail = db.Table('order_detail',
+# 	db.Column('id', db.Integer, primary_key=True),
+# 	db.Column('order_id', db.Integer, db.ForeignKey('order.id'), primary_key=True),
+# 	db.Column('product_id', 
+# 	db.Column('order_id', db.Integer, db.ForeignKey('order.id'), primary_key=True),
+# 	db.Column('public_id', db.String),
+# 	db.Column('quantity', db.Integer),
+# 	db.Column('subtotal', db.Integer)
+# )
 
 class User(db.Model):
 	id = db.Column(db.Integer, primary_key=True, index=True)
@@ -55,7 +57,7 @@ class Products(db.Model):
 	quantity = db.Column(db.Integer, nullable=False)
 	description = db.Column(db.Text)
 	image = db.Column(db.Text)
-	# products = db.relationship('order_detail', backref='products', lazy=True)
+	products = db.relationship('OrderDetail', backref='products', lazy=True)
 
 	def repr(self):
 		return f'Products <{self.name_product}>'
@@ -67,12 +69,22 @@ class Order(db.Model):
 	date = db.Column(db.Date, nullable=False)
 	payment_type = db.Column(db.String(100), nullable=False)
 	status = db.Column(db.String(100), nullable=False)
-	total_price = db.Column(db.String(100), nullable=False)
-	# orders = db.relationship('order_detail', backref='orders', lazy=True)
+	# total_price = db.Column(db.Integer, nullable=False)
+	orders = db.relationship('OrderDetail', backref='orders', lazy=True)
 
 	def repr(self):
 		return f'Order <{self.status}>'	
 
+class OrderDetail(db.Model):
+	id = db.Column(db.Integer, primary_key=True, index=True)
+	order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
+	product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+	public_id = db.Column(db.String, nullable=False)
+	quantity = db.Column(db.Integer, nullable=False)
+	subtotal = db.Column(db.Integer, nullable=False)
+
+	def repr(self):
+		return f'Order <{self.status}>'	
 
 # db.create_all()
 # db.session.commit()
@@ -99,7 +111,7 @@ def home():
 	}
 
 @app.route('/register/', methods=['POST'])
-def register():
+def register_user():
 	data = request.get_json()
 	if not 'name' in data or not 'username' in data or not 'password' in data:
 		return jsonify({
@@ -140,7 +152,7 @@ def register():
 	}, 201
 
 @app.route('/login/')
-def login():
+def login_user():
 	decode_var = request.headers.get('Authorization')
 	allow = author_user(decode_var)[0]
 	user = User.query.filter_by(username=allow).first()
@@ -148,7 +160,7 @@ def login():
 		return {
 			'message' : 'Please check your login details and try again.'
 		}, 401
-	elif user:
+	elif user.is_admin is True:
 		return jsonify([
 			{
 				'id': user.public_id, 
@@ -163,13 +175,29 @@ def login():
 				'is admin': user.is_admin
 			} for user in User.query.all()
 		]), 200
+	elif user.is_admin is False:
+		return jsonify([
+			{
+				'id': user.public_id, 
+				'name': user.name, 
+				'username': user.username, 
+				'email': user.email,
+				'address': user.address,
+				'city': user.city,
+				'state': user.state,
+				'postcode': user.email,
+				'phone': user.phone,
+				'is admin': user.is_admin
+			} 
+		]), 200 
 
 @app.route('/users/', methods=['PUT'])
 def update_user():
 	decode_var = request.headers.get('Authorization')
 	allow = author_user(decode_var)[0]
 	allowpass = author_user(decode_var)[1]
-	user = User.query.filter_by(username=allow).first()
+	# user = User.query.filter_by(username=allow).first()
+	user = User.query.filter_by(username=allow).filter_by(password=allowpass).first_or_404()
 	if not user:
 		return {
 			'message' : 'Please check your login details and try again.'
@@ -181,7 +209,6 @@ def update_user():
 				'error': 'Bad Request',
 				'message': 'Name field needs to be present'
 			}, 400
-		user = User.query.filter_by(username=allow).filter_by(password=allowpass).first_or_404()
 		if not user:
 			return {'message' : 'Please check login detail!'}
 		user.name=data['name']
@@ -194,41 +221,40 @@ def update_user():
 		if 'password' in data:
 			user.password=data['password']
 		db.session.commit()
-		return jsonify({
-			'id': user.public_id, 'name': user.name, 'username': user.username, 'password': user.password,
+		return jsonify(
+			{
+				'id': user.public_id, 
+				'name': user.name, 
+				'username': user.username, 
+				'email': user.email,
+				'address': user.address,
+				'city': user.city,
+				'state': user.state,
+				'postcode': user.email,
+				'phone': user.phone,
+				'is admin': user.is_admin
 		}),200
 
+@app.route('/users/<id>/', methods=['DELETE'] )
+def delete_user(id):
 	decode_var = request.headers.get('Authorization')
 	allow = author_user(decode_var)[0]
-	allowpass = author_user(decode_var)[1]
 	user = User.query.filter_by(username=allow).first()
 	if not user:
 		return {
 			'message' : 'Please check your login details and try again.'
 		}, 401
-	elif user:
-		data = request.get_json()
-		if 'name' not in data:
-			return {
-				'error': 'Bad Request',
-				'message': 'Name field needs to be present'
-			}, 400
-		user = User.query.filter_by(username=allow).filter_by(password=allowpass).first_or_404()
-		if not user:
-			return {'message' : 'Please check login detail!'}
-		user.name=data['name']
-		user.username=data['username']
-		user.password=data['password']
-		if 'name' in data:
-			user.name=data['name']
-		if 'username' in data:
-			user.username=data['username']
-		if 'password' in data:
-			user.password=data['password']
+	elif user.is_admin is True :
+		user = User.query.filter_by(public_id=id).first_or_404()
+		db.session.delete(user)
 		db.session.commit()
-		return jsonify({
-			'id': user.public_id, 'name': user.name, 'username': user.username, 'password': user.password,
-		}),200
+		return {
+			'success': 'Data deleted successfully'
+		},200
+	elif user.is_admin is False:
+		return {
+			'message' : 'Your not admin! please check again.'
+		},401
 
 #---------------------------------- CATEGORIES
 
@@ -295,7 +321,7 @@ def update_categories(id):
 		}, 401
 	elif user.is_admin is True :
 		data = request.get_json()
-		cat = Categories.query.filter_by(id=id).first_or_404()
+		cat = Categories.query.filter_by(public_id=id).first_or_404()
 		cat.name_categories = data['name_categories']
 		db.session.commit()
 		return {
@@ -310,6 +336,27 @@ def update_categories(id):
 			'message' : 'UNAUTOHORIZED'
 		},401
 
+@app.route('/categories/<id>/', methods=['DELETE'] )
+def delete_categories(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user.is_admin is True :
+		cat = Categories.query.filter_by(public_id=id).first_or_404()
+		db.session.delete(cat)
+		db.session.commit()
+		return {
+			'success': 'Data deleted successfully'
+		},200
+	elif user.is_admin is False:
+		return {
+			'message' : 'Your not admin! please check again.'
+		},401
+	
 #---------------------------------- PRODUCTS
 
 @app.route('/products/')
@@ -374,10 +421,131 @@ def insert_products():
 		db.session.add(product)
 		db.session.commit()
 		return {
-			'message' : 'success'
-			# 'id': cat.public_id, 'name': cat.name_categories
+			'message' : 'success',
+			'id': product.public_id, 
+			'name': product.name_product,
+			'categories': product.categories.name_categories,
+			'price': product.price,
+			'quantity': product.quantity,
+			'description': product.description,
+			'image': product.image
 		}, 201
 	elif user.is_admin is False:
 		return {
 			'message' : 'Your not admin!'
 			}
+
+@app.route('/products/<id>',  methods=['PUT'])
+def update_products(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user.is_admin is True :
+		data = request.get_json()
+		pro = Products.query.filter_by(public_id=id).first_or_404()
+		cat = Categories.query.filter_by(name_categories=data['name_categories']).first_or_404()
+		pro.name_product = data['name_product']
+		cat.categories_id = cat.id
+		db.session.commit()
+		return {
+			'message': 'success'
+		}
+	elif user.is_admin is False:
+		return {
+			'message' : 'Your not admin! please check again.'
+		},401
+	else:
+		return {
+			'message' : 'UNAUTOHORIZED'
+		},401
+
+@app.route('/products /<id>/', methods=['DELETE'] )
+def delete_products(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user.is_admin is True :
+		pro = Products.query.filter_by(public_id=id).first_or_404()
+		db.session.delete(pro)
+		db.session.commit()
+		return {
+			'success': 'Data deleted successfully'
+		},200
+	elif user.is_admin is False:
+		return {
+			'message' : 'Your not admin! please check again.'
+		},401
+
+
+#-------------------------------- ORDERS
+
+@app.route('/order/', methods=['POST'])
+def add_order():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		data = request.get_json()
+		users = User.query.filter_by(username=data['username']).first()
+		if not users:
+			return {
+				'error': 'Bad request',
+				'message': 'Invalid Name User'
+			}
+		order = Order(
+				user_id = users.id,
+				date = data['date'],
+				payment_type=data['payment_type'],
+				status= data.get('status', 'Active'),
+				public_id=str(uuid.uuid4())
+			)
+		db.session.add(order)
+		db.session.commit()
+		a= Order.query.filter_by(user_id=user.id).all()
+		orders = Order.query.filter_by(id=a[-1].id).first_or_404()
+		# if not 'quantity' in data:
+		# 	return {
+		# 		'error': 'Bad request',
+		# 		'message': 'Invalid Quantity'
+		# 	}
+		# orderd = OrderDetail.query.filter_by(quantity=data['quantity']).first()
+		for x in data['name_product']:
+			pro = Products.query.filter_by(name_product=x).first()
+			if not pro:
+				return {
+					'error': 'Bad request',
+					'message': 'Invalid Name Products'
+				}
+		
+			subtotal = data['quantity'] * pro.price
+			orderdetail = OrderDetail(
+				order_id= orders.id,
+				product_id = pro.id,
+				quantity = data['quantity'],
+				subtotal= subtotal,
+				public_id=str(uuid.uuid4())
+			)
+			db.session.add(orderdetail)
+		db.session.commit()
+		return {
+			'message' : 'success',
+			# 'id': product.public_id, 
+			# 'name': product.name_product,
+			# 'categories': product.categories.name_categories,
+			# 'price': product.price,
+			# 'quantity': product.quantity,
+			# 'description': product.description,
+			# 'image': product.image
+		}, 201
