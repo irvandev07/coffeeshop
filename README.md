@@ -1,7 +1,7 @@
 # Coffeeshop Scenario
 - Register new user
 - Update user data
-- credte new menu
+- create new menu
     - Menu consist of name, description, price
 - Update menu data
 - Update menu stock
