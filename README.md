@@ -1,4 +1,20 @@
-# coffeeshop
+# Coffeeshop Scenario
+- Register new user
+- Update user data
+- credte new menu
+    - Menu consist of name, description, price
+- Update menu data
+- Update menu stock
+- Order menu
+    - User and Order relation is many-to-many, Only 10 parallel active order max can be served by the shop
+- Complete order
+- Cancel order
+- Search menu
+    - Only display menu that is in-stock by default
+- Get top 5 menu
+    - most ordered
+- Get top 5 users
+    - ordered most frequently
 
 # Preview Database ERD
 
