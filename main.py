@@ -1,7 +1,11 @@
 import base64
-from flask import Flask, jsonify, request
+import re
+from flask import Flask, jsonify, request, session
 from flask_sqlalchemy import SQLAlchemy
 import uuid
+
+from sqlalchemy import desc, func
+
 
 
 app = Flask(__name__)
@@ -10,16 +14,6 @@ db = SQLAlchemy(app)
 app.config['SECRET_KEY']='secret'
 app.config['SQLALCHEMY_DATABASE_URI']='postgresql://postgres:Sychrldi227@localhost:5432/db_coffeeshop' 
 
-
-# order_detail = db.Table('order_detail',
-# 	db.Column('id', db.Integer, primary_key=True),
-# 	db.Column('order_id', db.Integer, db.ForeignKey('order.id'), primary_key=True),
-# 	db.Column('product_id', 
-# 	db.Column('order_id', db.Integer, db.ForeignKey('order.id'), primary_key=True),
-# 	db.Column('public_id', db.String),
-# 	db.Column('quantity', db.Integer),
-# 	db.Column('subtotal', db.Integer)
-# )
 
 class User(db.Model):
 	id = db.Column(db.Integer, primary_key=True, index=True)
@@ -34,7 +28,7 @@ class User(db.Model):
 	postcode = db.Column(db.Integer)
 	phone = db.Column(db.BigInteger)
 	is_admin = db.Column(db.Boolean, default=False)
-	# users = db.relationship('Order', backref='users', lazy=True)
+	users = db.relationship('Order', backref='users', lazy=True)
 	
 	def __repr__(self):
 		return f'<User "{self.name}">'
@@ -54,7 +48,7 @@ class Products(db.Model):
 	public_id = db.Column(db.String, nullable=False)
 	name_product = db.Column(db.String(100), nullable=False)
 	price = db.Column(db.Integer, nullable=False)
-	quantity = db.Column(db.Integer, nullable=False)
+	stock = db.Column(db.Integer, nullable=False)
 	description = db.Column(db.Text)
 	image = db.Column(db.Text)
 	products = db.relationship('OrderDetail', backref='products', lazy=True)
@@ -69,7 +63,7 @@ class Order(db.Model):
 	date = db.Column(db.Date, nullable=False)
 	payment_type = db.Column(db.String(100), nullable=False)
 	status = db.Column(db.String(100), nullable=False)
-	# total_price = db.Column(db.Integer, nullable=False)
+	total_price = db.Column(db.Integer, nullable=False)
 	orders = db.relationship('OrderDetail', backref='orders', lazy=True)
 
 	def repr(self):
@@ -359,6 +353,27 @@ def delete_categories(id):
 	
 #---------------------------------- PRODUCTS
 
+@app.route('/search-products/', methods=['POST'])
+def search_product():
+		lis =[]
+		data = request.get_json()
+		pro = data['product']
+		search = "%{}%".format(pro)
+		prods = Products.query.filter(Products.name_product.like(search)).all()
+		for x in prods:
+			if x.stock > 0:
+				lis.append(
+					{
+						'id': x.public_id, 
+						'name': x.name_product,
+						'categories': x.categories.name_categories,
+						'price': x.price,
+						'stock': x.stock,
+						'image': x.image
+					} 
+				)
+		return jsonify(lis)
+		
 @app.route('/products/')
 def get_products():
 	decode_var = request.headers.get('Authorization')
@@ -375,7 +390,7 @@ def get_products():
 				'name': product.name_product,
 				'categories': product.categories.name_categories,
 				'price': product.price,
-				'quantity': product.quantity,
+				'stock': product.stock,
 				'description': product.description,
 				'image': product.image
 
@@ -413,7 +428,7 @@ def insert_products():
 				name_product=data['name_product'],
 				categories_id = cat.id,
 				price = data['price'],
-				quantity=data['quantity'],
+				stock=data['stock'],
 				description= data['description'],
 				image=data['image'],
 				public_id=str(uuid.uuid4())
@@ -426,7 +441,7 @@ def insert_products():
 			'name': product.name_product,
 			'categories': product.categories.name_categories,
 			'price': product.price,
-			'quantity': product.quantity,
+			'stock': product.stock,
 			'description': product.description,
 			'image': product.image
 		}, 201
@@ -447,9 +462,7 @@ def update_products(id):
 	elif user.is_admin is True :
 		data = request.get_json()
 		pro = Products.query.filter_by(public_id=id).first_or_404()
-		cat = Categories.query.filter_by(name_categories=data['name_categories']).first_or_404()
-		pro.name_product = data['name_product']
-		cat.categories_id = cat.id
+		pro.stock += data['stock']
 		db.session.commit()
 		return {
 			'message': 'success'
@@ -487,6 +500,29 @@ def delete_products(id):
 
 #-------------------------------- ORDERS
 
+
+@app.route('/order/')
+def get_order():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		order = Order.query.filter_by(user_id=user.id).all()
+		lis = []
+		for x in order:
+			lis.append(
+				{
+					'id': x.public_id, 
+					'name': x.users.name,
+					'total price' : x.total_price
+				} 
+			)
+		return jsonify(lis),200
+	
 @app.route('/order/', methods=['POST'])
 def add_order():
 	decode_var = request.headers.get('Authorization')
@@ -498,29 +534,25 @@ def add_order():
 		}, 401
 	elif user:
 		data = request.get_json()
-		users = User.query.filter_by(username=data['username']).first()
-		if not users:
-			return {
-				'error': 'Bad request',
-				'message': 'Invalid Name User'
-			}
 		order = Order(
-				user_id = users.id,
+				user_id = user.id,
 				date = data['date'],
 				payment_type=data['payment_type'],
 				status= data.get('status', 'Active'),
+				total_price=data.get('total_price', 0),
 				public_id=str(uuid.uuid4())
 			)
 		db.session.add(order)
 		db.session.commit()
+
+
 		a= Order.query.filter_by(user_id=user.id).all()
 		orders = Order.query.filter_by(id=a[-1].id).first_or_404()
-		# if not 'quantity' in data:
-		# 	return {
-		# 		'error': 'Bad request',
-		# 		'message': 'Invalid Quantity'
-		# 	}
-		# orderd = OrderDetail.query.filter_by(quantity=data['quantity']).first()
+		if not 'quantity' in data:
+			return {
+				'error': 'Bad request',
+				'message': 'Invalid Quantity'
+			}
 		for x in data['name_product']:
 			pro = Products.query.filter_by(name_product=x).first()
 			if not pro:
@@ -528,7 +560,17 @@ def add_order():
 					'error': 'Bad request',
 					'message': 'Invalid Name Products'
 				}
-		
+			if pro.quantity == 0:
+				return jsonify ({
+					'message': 'Product not available'
+				}), 400
+			
+			order =  Order.query.filter_by(status='Active').count()
+			if order >= 10:
+				return jsonify ({
+					'message': 'Please waiting for order'
+				}), 400
+			
 			subtotal = data['quantity'] * pro.price
 			orderdetail = OrderDetail(
 				order_id= orders.id,
@@ -537,7 +579,18 @@ def add_order():
 				subtotal= subtotal,
 				public_id=str(uuid.uuid4())
 			)
+			pro.quantity -= orderdetail.quantity
 			db.session.add(orderdetail)
+		
+		db.session.commit()
+		a= Order.query.filter_by(user_id=user.id).all()
+		order_ = Order.query.filter_by(id=a[-1].id).first_or_404()
+		orderd = OrderDetail.query.filter_by(order_id=order_.id).all()
+
+		d = 0
+		for i in orderd:
+			d += i.subtotal
+		order_.total_price = d
 		db.session.commit()
 		return {
 			'message' : 'success',
@@ -549,3 +602,12 @@ def add_order():
 			# 'description': product.description,
 			# 'image': product.image
 		}, 201
+
+@app.route('/most-orders/')
+def get_mostorder():
+		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
+		# most = OrderDetail.query.filter_by(product_id=OrderDetail.product_id).all()
+		lis = []
+		for x in most:
+			lis.append({'total sold': x[1], 'name': x[2]})
+		return jsonify(lis)
