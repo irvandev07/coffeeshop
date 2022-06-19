@@ -1,10 +1,8 @@
 import base64
-import re
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 import uuid
-
-from sqlalchemy import desc, func
+from datetime import date
 
 
 
@@ -64,7 +62,7 @@ class Order(db.Model):
 	payment_type = db.Column(db.String(100), nullable=False)
 	status = db.Column(db.String(100), nullable=False)
 	total_price = db.Column(db.Integer, nullable=False)
-	orders = db.relationship('OrderDetail', backref='orders', lazy=True)
+	orders = db.relationship('OrderDetail', backref='orders', lazy=True, cascade="all, delete")
 
 	def repr(self):
 		return f'Order <{self.status}>'	
@@ -185,6 +183,22 @@ def login_user():
 			} 
 		]), 200 
 
+@app.route('/most-users/')
+def get_mostuser():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		most = db.engine.execute('''select COUNT(o.user_id) as total_order, u.name from "%s" o left join "%s" u on o.user_id = u.id group by o.user_id, u.name ORDER BY total_order DESC LIMIT 5'''% ("order", "user".strip())) 
+		lis = []
+		for x in most:
+			lis.append({'total order' :x[0], 'name': x[1]})
+		return jsonify(lis)
+
 @app.route('/users/', methods=['PUT'])
 def update_user():
 	decode_var = request.headers.get('Authorization')
@@ -268,6 +282,23 @@ def get_category():
 				'name': categories.name_categories
 			} for categories in Categories.query.all()
 		]),200
+
+@app.route('/categories/<id>/')
+def get_categories_id(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		print(id)
+		cat = Categories.query.filter_by(public_id=id).first_or_404()
+		return {
+			'id': cat.public_id, 
+			'name': cat.name_categories
+		}, 201
 
 @app.route('/categories/', methods=['POST'])
 def insert_categories():
@@ -355,12 +386,22 @@ def delete_categories(id):
 
 @app.route('/search-products/', methods=['POST'])
 def search_product():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
 		lis =[]
 		data = request.get_json()
 		pro = data['product']
 		search = "%{}%".format(pro)
 		prods = Products.query.filter(Products.name_product.like(search)).all()
 		for x in prods:
+			# if x.stock == 0:
+			# 	return jsonify({'message' : 'stock notavailable'})
 			if x.stock > 0:
 				lis.append(
 					{
@@ -396,6 +437,28 @@ def get_products():
 
 			} for product in Products.query.all()
 		]),200
+
+@app.route('/products/<id>/')
+def get_products_id(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		print(id)
+		product = Products.query.filter_by(public_id=id).first_or_404()
+		return {
+				'id': product.public_id, 
+				'name': product.name_product,
+				'categories': product.categories.name_categories,
+				'price': product.price,
+				'stock': product.stock,
+				'description': product.description,
+				'image': product.image
+		}, 201
 
 @app.route('/products/', methods=['POST'])
 def insert_products():
@@ -497,9 +560,24 @@ def delete_products(id):
 			'message' : 'Your not admin! please check again.'
 		},401
 
-
 #-------------------------------- ORDERS
 
+@app.route('/most-orders/')
+def get_mostorder():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
+		# most = OrderDetail.query.filter_by(product_id=OrderDetail.product_id).all()
+		lis = []
+		for x in most:
+			lis.append({'total sold': x[1], 'name': x[2]})
+		return jsonify(lis)
 
 @app.route('/order/')
 def get_order():
@@ -511,18 +589,44 @@ def get_order():
 			'message' : 'Please check your login details and try again.'
 		}, 401
 	elif user:
-		order = Order.query.filter_by(user_id=user.id).all()
+		order = Order.query.filter_by(user_id=user.id).order_by(Order.date.desc()).all()
+		orderd = OrderDetail.query.filter_by(order_id=order.id).all()
 		lis = []
 		for x in order:
-			lis.append(
-				{
-					'id': x.public_id, 
-					'name': x.users.name,
-					'total price' : x.total_price
-				} 
-			)
+			if lis is None :
+				return {'message' : 'Sorry, no history order'}
+			else:
+				lis.append(
+					{
+						'id': x.public_id, 
+						'name': x.users.name,
+						'total price' : x.total_price,
+						'date' : x.date,
+						'status' : x.status,
+					} 
+				)
 		return jsonify(lis),200
-	
+
+@app.route('/order/<id>/')
+def get_order_id(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		print(id)
+		order = Order.query.filter_by(public_id=id).first_or_404()
+		return {
+				'id': order.public_id, 
+				'name': order.users.name,
+				'total price' : order.total_price,
+				'date' : order.date,
+				'status' : order.status
+		}, 201
+
 @app.route('/order/', methods=['POST'])
 def add_order():
 	decode_var = request.headers.get('Authorization')
@@ -534,80 +638,122 @@ def add_order():
 		}, 401
 	elif user:
 		data = request.get_json()
+		order =  Order.query.filter_by(status='Active').count()
+		if order >= 10:
+			return jsonify ({
+				'message': 'Please waiting for order'
+			}), 400
+
+		today = date.today()
 		order = Order(
 				user_id = user.id,
-				date = data['date'],
-				payment_type=data['payment_type'],
+				date = today,
+				payment_type=data.get('payment_type', 'Cashless'),
 				status= data.get('status', 'Active'),
-				total_price=data.get('total_price', 0),
+				total_price= 0,
 				public_id=str(uuid.uuid4())
 			)
 		db.session.add(order)
 		db.session.commit()
 
-
-		a= Order.query.filter_by(user_id=user.id).all()
-		orders = Order.query.filter_by(id=a[-1].id).first_or_404()
 		if not 'quantity' in data:
 			return {
 				'error': 'Bad request',
 				'message': 'Invalid Quantity'
 			}
-		for x in data['name_product']:
-			pro = Products.query.filter_by(name_product=x).first()
+		for x in range(len(data['name_product'])):
+			pro = Products.query.filter_by(name_product=data['name_product'][x]).first()
 			if not pro:
 				return {
 					'error': 'Bad request',
 					'message': 'Invalid Name Products'
 				}
-			if pro.quantity == 0:
+			if pro.stock == 0:
 				return jsonify ({
 					'message': 'Product not available'
 				}), 400
-			
-			order =  Order.query.filter_by(status='Active').count()
-			if order >= 10:
-				return jsonify ({
-					'message': 'Please waiting for order'
-				}), 400
-			
-			subtotal = data['quantity'] * pro.price
+				
+
+			subtotal = data['quantity'][x] * pro.price
 			orderdetail = OrderDetail(
-				order_id= orders.id,
+				order_id= order.id,
 				product_id = pro.id,
-				quantity = data['quantity'],
+				quantity =  data['quantity'][x],
 				subtotal= subtotal,
 				public_id=str(uuid.uuid4())
 			)
-			pro.quantity -= orderdetail.quantity
-			db.session.add(orderdetail)
-		
+
+			pro.stock -= orderdetail.quantity
+			order.orders.append(orderdetail)
 		db.session.commit()
-		a= Order.query.filter_by(user_id=user.id).all()
-		order_ = Order.query.filter_by(id=a[-1].id).first_or_404()
-		orderd = OrderDetail.query.filter_by(order_id=order_.id).all()
+		orderd = OrderDetail.query.filter_by(order_id=order.id).all()
 
 		d = 0
 		for i in orderd:
 			d += i.subtotal
-		order_.total_price = d
+		order.total_price = d
 		db.session.commit()
 		return {
-			'message' : 'success',
-			# 'id': product.public_id, 
-			# 'name': product.name_product,
-			# 'categories': product.categories.name_categories,
-			# 'price': product.price,
-			# 'quantity': product.quantity,
-			# 'description': product.description,
-			# 'image': product.image
+			'id': order.public_id, 
+			'name': order.users.name,
+			'total price' : order.total_price,
+			'date' : order.date,
+			'status' : order.status
 		}, 201
 
-@app.route('/most-orders/')
-def get_mostorder():
-		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
-		# most = OrderDetail.query.filter_by(product_id=OrderDetail.product_id).all()
-		lis = []
-		for x in most:
-			lis.append({'total sold': x[1], 'name': x[2]})
-		return jsonify(lis)
+@app.route('/order/<id>',  methods=['PUT'])
+def update_order(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user.is_admin is True :
+		data = request.get_json()
+		order = Order.query.filter_by(public_id=id).first_or_404()
+		order.status = data['status']
+		db.session.commit()
+		return {
+			'message': 'success'
+		}
+	elif user.is_admin is False:
+		data = request.get_json()
+		order = Order.query.filter_by(public_id=id).first_or_404()
+		order.status = data['status']
+		if data['status'] == 'Complete':
+			return {
+			'message' : 'Edit status complete just for admin'
+			}, 401
+		db.session.commit()
+		return {
+			'message': 'success'
+		}
+	else:
+		return {
+			'message' : 'UNAUTOHORIZED'
+		},401
+
+@app.route('/order/<id>', methods=['DELETE'] )
+def delete_order(id):
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user.is_admin is True :
+		order = Order.query.filter_by(public_id=id).first_or_404()
+		orderd = OrderDetail.query.filter_by(order_id=order.id).first()
+		db.session.delete(orderd)
+		db.session.delete(order)
+		db.session.commit()
+		return {
+			'success': 'Data deleted successfully'
+		},200
+	elif user.is_admin is False:
+		return {
+			'message' : 'Your not admin! please check again.'
+		},401
