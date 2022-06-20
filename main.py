@@ -140,7 +140,7 @@ def register_user():
 		'state': user.state,
 		'postcode': user.email,
 		'phone': user.phone,
-		'is admin': user.is_admin
+		'is_admin': user.is_admin
 	}, 201
 
 @app.route('/login/')
@@ -164,7 +164,7 @@ def login_user():
 				'state': user.state,
 				'postcode': user.email,
 				'phone': user.phone,
-				'is admin': user.is_admin
+				'is_admin': user.is_admin
 			} for user in User.query.all()
 		]), 200
 	elif user.is_admin is False:
@@ -179,7 +179,7 @@ def login_user():
 				'state': user.state,
 				'postcode': user.email,
 				'phone': user.phone,
-				'is admin': user.is_admin
+				'is_admin': user.is_admin
 			} 
 		]), 200 
 
@@ -196,7 +196,7 @@ def get_mostuser():
 		most = db.engine.execute('''select COUNT(o.user_id) as total_order, u.name from "%s" o left join "%s" u on o.user_id = u.id group by o.user_id, u.name ORDER BY total_order DESC LIMIT 5'''% ("order", "user".strip())) 
 		lis = []
 		for x in most:
-			lis.append({'total order' :x[0], 'name': x[1]})
+			lis.append({'total_order' :x['total_order'], 'name': x['name']})
 		return jsonify(lis)
 
 @app.route('/users/', methods=['PUT'])
@@ -240,7 +240,7 @@ def update_user():
 				'state': user.state,
 				'postcode': user.email,
 				'phone': user.phone,
-				'is admin': user.is_admin
+				'is_admin': user.is_admin
 		}),200
 
 @app.route('/users/<id>/', methods=['DELETE'] )
@@ -399,21 +399,25 @@ def search_product():
 		pro = data['product']
 		search = "%{}%".format(pro)
 		prods = Products.query.filter(Products.name_product.like(search)).all()
-		for x in prods:
-			# if x.stock == 0:
-			# 	return jsonify({'message' : 'stock notavailable'})
-			if x.stock > 0:
-				lis.append(
-					{
-						'id': x.public_id, 
-						'name': x.name_product,
-						'categories': x.categories.name_categories,
-						'price': x.price,
-						'stock': x.stock,
-						'image': x.image
-					} 
-				)
-		return jsonify(lis)
+		if not prods:
+			lis.append ({'message' : 'Did not find search'})
+			return jsonify(lis),200
+		else:
+			for x in prods:
+				if not x.stock:
+					lis.append({'message' : 'Stock is empty'})
+				if x.stock > 0:
+					lis.append(
+						{
+							'id': x.public_id, 
+							'name': x.name_product,
+							'categories': x.categories.name_categories,
+							'price': x.price,
+							'stock': x.stock,
+							'image': x.image
+						} 
+					)
+			return jsonify(lis)
 		
 @app.route('/products/')
 def get_products():
@@ -528,7 +532,7 @@ def update_products(id):
 		pro.stock += data['stock']
 		db.session.commit()
 		return {
-			'message': 'success'
+			'message': 'success update'
 		}
 	elif user.is_admin is False:
 		return {
@@ -573,10 +577,9 @@ def get_mostorder():
 		}, 401
 	elif user:
 		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
-		# most = OrderDetail.query.filter_by(product_id=OrderDetail.product_id).all()
 		lis = []
 		for x in most:
-			lis.append({'total sold': x[1], 'name': x[2]})
+			lis.append({'total_sold': x['qt'], 'name': x['name_product']})
 		return jsonify(lis)
 
 @app.route('/order/')
@@ -590,23 +593,22 @@ def get_order():
 		}, 401
 	elif user:
 		order = Order.query.filter_by(user_id=user.id).order_by(Order.date.desc()).all()
-		# orderd = OrderDetail.query.filter_by(order_id=order.id).all()
 		lis = []
-		for x in order:
-			if lis is None :
-				return {'message' : 'Sorry, no history order'}
-			else:
+		if not order:
+			lis.append({'message' : 'Sorry, no history order'})
+			return jsonify(lis),200
+		else:
+			for x in order:
 				lis.append(
 					{
 						'id': x.public_id, 
 						'name': x.users.name,
-						'total price' : x.total_price,
+						'total_price' : x.total_price,
 						'date' : x.date,
-						'status' : x.status,
-						'order detail' : []
+						'status' : x.status
 					} 
 				)
-		return jsonify(lis),200
+			return jsonify(lis),200
 
 @app.route('/order/<id>/')
 def get_order_id(id):
@@ -623,7 +625,7 @@ def get_order_id(id):
 		return {
 				'id': order.public_id, 
 				'name': order.users.name,
-				'total price' : order.total_price,
+				'total_price' : order.total_price,
 				'date' : order.date,
 				'status' : order.status
 		}, 201
@@ -644,7 +646,6 @@ def add_order():
 			return jsonify ({
 				'message': 'Please waiting for order'
 			}), 400
-
 		today = date.today()
 		order = Order(
 				user_id = user.id,
@@ -654,9 +655,6 @@ def add_order():
 				total_price= 0,
 				public_id=str(uuid.uuid4())
 			)
-		db.session.add(order)
-		db.session.commit()
-
 		if not 'quantity' in data:
 			return {
 				'error': 'Bad request',
@@ -673,30 +671,22 @@ def add_order():
 				return jsonify ({
 					'message': 'Product not available'
 				}), 400
-			
-
-			subtotal = data['quantity'][x] * pro.price
 			orderdetail = OrderDetail(
-				order_id= order.id,
 				product_id = pro.id,
 				quantity =  data['quantity'][x],
-				subtotal= subtotal,
+				subtotal= data['quantity'][x] * pro.price,
 				public_id=str(uuid.uuid4())
 			)
 			order.orders.append(orderdetail)
-			pro.stock -= orderdetail.quantity
-		db.session.commit()
-		orderd = OrderDetail.query.filter_by(order_id=order.id).all()
-
-		d = 0
-		for i in orderd:
-			d += i.subtotal
-		order.total_price = d
+			order.total_price += orderdetail.subtotal
+			if pro.stock > 0 :
+				pro.stock -= orderdetail.quantity
+		db.session.add(order)
 		db.session.commit()
 		return {
 			'id': order.public_id, 
 			'name': order.users.name,
-			'total price' : order.total_price,
+			'total_price' : order.total_price,
 			'date' : order.date,
 			'status' : order.status
 		}, 201
@@ -706,13 +696,13 @@ def update_order(id):
 	decode_var = request.headers.get('Authorization')
 	allow = author_user(decode_var)[0]
 	user = User.query.filter_by(username=allow).first()
+	order = Order.query.filter_by(public_id=id).first_or_404()
 	if not user:
 		return {
 			'message' : 'Please check your login details and try again.'
 		}, 401
 	elif user.is_admin is True :
 		data = request.get_json()
-		order = Order.query.filter_by(public_id=id).first_or_404()
 		order.status = data['status']
 		db.session.commit()
 		return {
@@ -720,7 +710,6 @@ def update_order(id):
 		}
 	elif user.is_admin is False:
 		data = request.get_json()
-		order = Order.query.filter_by(public_id=id).first_or_404()
 		order.status = data['status']
 		if data['status'] == 'Complete':
 			return {

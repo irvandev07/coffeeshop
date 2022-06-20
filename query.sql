@@ -4,6 +4,8 @@ SELECT * FROM order_detail ORDER BY id;
 SELECT * FROM products ORDER BY id;
 SELECT * FROM categories ORDER BY id;
 
+ALTER SEQUENCE order_id_seq RESTART WITH 1
+
 
 SELECT product_id, SUM(quantity * subtotal) FROM order_detail GROUP BY product_id ORDER BY SUM DESC LIMIT 5;
 
