@@ -1,4 +1,5 @@
 import base64
+from cgitb import reset
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 import uuid
@@ -81,7 +82,6 @@ class OrderDetail(db.Model):
 # db.create_all()
 # db.session.commit()
 
-# @app.route('/auth')
 def author_user(auth):
 	decode_var = request.headers.get('Authorization')
 	c = base64.b64decode(auth[6:])
@@ -590,7 +590,7 @@ def get_order():
 		}, 401
 	elif user:
 		order = Order.query.filter_by(user_id=user.id).order_by(Order.date.desc()).all()
-		orderd = OrderDetail.query.filter_by(order_id=order.id).all()
+		# orderd = OrderDetail.query.filter_by(order_id=order.id).all()
 		lis = []
 		for x in order:
 			if lis is None :
@@ -603,6 +603,7 @@ def get_order():
 						'total price' : x.total_price,
 						'date' : x.date,
 						'status' : x.status,
+						'order detail' : []
 					} 
 				)
 		return jsonify(lis),200
@@ -672,7 +673,7 @@ def add_order():
 				return jsonify ({
 					'message': 'Product not available'
 				}), 400
-				
+			
 
 			subtotal = data['quantity'][x] * pro.price
 			orderdetail = OrderDetail(
@@ -682,9 +683,8 @@ def add_order():
 				subtotal= subtotal,
 				public_id=str(uuid.uuid4())
 			)
-
-			pro.stock -= orderdetail.quantity
 			order.orders.append(orderdetail)
+			pro.stock -= orderdetail.quantity
 		db.session.commit()
 		orderd = OrderDetail.query.filter_by(order_id=order.id).all()
 
