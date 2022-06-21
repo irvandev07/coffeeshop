@@ -183,28 +183,11 @@ def login_user():
 			} 
 		]), 200 
 
-@app.route('/most-users/')
-def get_mostuser():
-	decode_var = request.headers.get('Authorization')
-	allow = author_user(decode_var)[0]
-	user = User.query.filter_by(username=allow).first()
-	if not user:
-		return {
-			'message' : 'Please check your login details and try again.'
-		}, 401
-	elif user:
-		most = db.engine.execute('''select COUNT(o.user_id) as total_order, u.name from "%s" o left join "%s" u on o.user_id = u.id group by o.user_id, u.name ORDER BY total_order DESC LIMIT 5'''% ("order", "user".strip())) 
-		lis = []
-		for x in most:
-			lis.append({'total_order' :x['total_order'], 'name': x['name']})
-		return jsonify(lis)
-
 @app.route('/users/', methods=['PUT'])
 def update_user():
 	decode_var = request.headers.get('Authorization')
 	allow = author_user(decode_var)[0]
 	allowpass = author_user(decode_var)[1]
-	# user = User.query.filter_by(username=allow).first()
 	user = User.query.filter_by(username=allow).filter_by(password=allowpass).first_or_404()
 	if not user:
 		return {
@@ -404,8 +387,6 @@ def search_product():
 			return jsonify(lis),200
 		else:
 			for x in prods:
-				if not x.stock:
-					lis.append({'message' : 'Stock is empty'})
 				if x.stock > 0:
 					lis.append(
 						{
@@ -566,22 +547,6 @@ def delete_products(id):
 
 #-------------------------------- ORDERS
 
-@app.route('/most-orders/')
-def get_mostorder():
-	decode_var = request.headers.get('Authorization')
-	allow = author_user(decode_var)[0]
-	user = User.query.filter_by(username=allow).first()
-	if not user:
-		return {
-			'message' : 'Please check your login details and try again.'
-		}, 401
-	elif user:
-		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
-		lis = []
-		for x in most:
-			lis.append({'total_sold': x['qt'], 'name': x['name_product']})
-		return jsonify(lis)
-
 @app.route('/order/')
 def get_order():
 	decode_var = request.headers.get('Authorization')
@@ -604,7 +569,7 @@ def get_order():
 						'id': x.public_id, 
 						'name': x.users.name,
 						'total_price' : x.total_price,
-						'date' : x.date,
+						'date' : x.date.strftime('%d-%m-%Y'),
 						'status' : x.status
 					} 
 				)
@@ -746,3 +711,38 @@ def delete_order(id):
 		return {
 			'message' : 'Your not admin! please check again.'
 		},401
+
+
+#------------------------------------- REPORTING
+
+@app.route('/most-users/')
+def get_mostuser():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		most = db.engine.execute('''select COUNT(o.user_id) as total_order, u.name from "%s" o left join "%s" u on o.user_id = u.id group by o.user_id, u.name ORDER BY total_order DESC LIMIT 5'''% ("order", "user".strip())) 
+		lis = []
+		for x in most:
+			lis.append({'total_order' :x['total_order'], 'name': x['name']})
+		return jsonify(lis)
+
+@app.route('/most-orders/')
+def get_mostorder():
+	decode_var = request.headers.get('Authorization')
+	allow = author_user(decode_var)[0]
+	user = User.query.filter_by(username=allow).first()
+	if not user:
+		return {
+			'message' : 'Please check your login details and try again.'
+		}, 401
+	elif user:
+		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
+		lis = []
+		for x in most:
+			lis.append({'total_sold': x['qt'], 'name': x['name_product']})
+		return jsonify(lis)
