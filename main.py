@@ -2,8 +2,8 @@ import base64
 from cgitb import reset
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-import uuid
 from datetime import date
+import uuid
 
 
 
@@ -70,9 +70,10 @@ class Order(db.Model):
 
 class OrderDetail(db.Model):
 	id = db.Column(db.Integer, primary_key=True, index=True)
+	public_id = db.Column(db.String, nullable=False)
 	order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
 	product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
-	public_id = db.Column(db.String, nullable=False)
+	product_name = db.Column(db.String, nullable=False)
 	quantity = db.Column(db.Integer, nullable=False)
 	subtotal = db.Column(db.Integer, nullable=False)
 
@@ -99,7 +100,7 @@ def author_user(auth):
 @app.route("/")
 def home():
 	return {
-		"message" : "Welcome Vandina Coffee"
+		"message" : "Welcome Copysop"
 	}
 
 @app.route('/register/', methods=['POST'])
@@ -224,7 +225,7 @@ def update_user():
 				'postcode': user.email,
 				'phone': user.phone,
 				'is_admin': user.is_admin
-		}),200
+		}),201
 
 @app.route('/users/<id>/', methods=['DELETE'] )
 def delete_user(id):
@@ -235,17 +236,13 @@ def delete_user(id):
 		return {
 			'message' : 'Please check your login details and try again.'
 		}, 401
-	elif user.is_admin is True :
+	elif user:
 		user = User.query.filter_by(public_id=id).first_or_404()
 		db.session.delete(user)
 		db.session.commit()
 		return {
 			'success': 'Data deleted successfully'
 		},200
-	elif user.is_admin is False:
-		return {
-			'message' : 'Your not admin! please check again.'
-		},401
 
 #---------------------------------- CATEGORIES
 
@@ -262,7 +259,7 @@ def get_category():
 		return jsonify([
 			{
 				'id': categories.public_id, 
-				'name': categories.name_categories
+				'name_categories': categories.name_categories
 			} for categories in Categories.query.all()
 		]),200
 
@@ -280,7 +277,7 @@ def get_categories_id(id):
 		cat = Categories.query.filter_by(public_id=id).first_or_404()
 		return {
 			'id': cat.public_id, 
-			'name': cat.name_categories
+			'name_categories': cat.name_categories
 		}, 201
 
 @app.route('/categories/', methods=['POST'])
@@ -311,7 +308,7 @@ def insert_categories():
 		db.session.add(cat)
 		db.session.commit()
 		return {
-			'id': cat.public_id, 'name': cat.name_categories
+			'id': cat.public_id, 'name_categories': cat.name_categories
 		}, 201
 	elif user.is_admin is False:
 		return {
@@ -333,7 +330,7 @@ def update_categories(id):
 		cat.name_categories = data['name_categories']
 		db.session.commit()
 		return {
-			'message': 'success'
+			'message': 'successfully update categories'
 		}
 	elif user.is_admin is False:
 		return {
@@ -384,7 +381,7 @@ def search_product():
 		prods = Products.query.filter(Products.name_product.like(search)).all()
 		if not prods:
 			lis.append ({'message' : 'Did not find search'})
-			return jsonify(lis),200
+			return jsonify(lis),404
 		else:
 			for x in prods:
 				if x.stock > 0:
@@ -398,7 +395,7 @@ def search_product():
 							'image': x.image
 						} 
 					)
-			return jsonify(lis)
+			return jsonify(lis), 200
 		
 @app.route('/products/')
 def get_products():
@@ -443,7 +440,7 @@ def get_products_id(id):
 				'stock': product.stock,
 				'description': product.description,
 				'image': product.image
-		}, 201
+		}, 200
 
 @app.route('/products/', methods=['POST'])
 def insert_products():
@@ -466,12 +463,12 @@ def insert_products():
 				'error': 'Bad Request',
 				'message': 'Name must be contain minimum of 4 letters'
 			}), 400
-		cat = Categories.query.filter_by(name_categories=data['name_categories']).first()
+		cat = Categories.query.filter_by(id=data['categories_id']).first()
 		if not cat:
-			return {
-				'error': 'Bad request',
-				'message': 'Invalid Name Categories'
-			}
+			return jsonify({
+				'error': 'Bad Request',
+				'message': 'Invalid categories'
+			}), 400
 		product = Products(
 				name_product=data['name_product'],
 				categories_id = cat.id,
@@ -484,7 +481,6 @@ def insert_products():
 		db.session.add(product)
 		db.session.commit()
 		return {
-			'message' : 'success',
 			'id': product.public_id, 
 			'name': product.name_product,
 			'categories': product.categories.name_categories,
@@ -496,7 +492,7 @@ def insert_products():
 	elif user.is_admin is False:
 		return {
 			'message' : 'Your not admin!'
-			}
+			}, 401
 
 @app.route('/products/<id>',  methods=['PUT'])
 def update_products(id):
@@ -510,11 +506,28 @@ def update_products(id):
 	elif user.is_admin is True :
 		data = request.get_json()
 		pro = Products.query.filter_by(public_id=id).first_or_404()
+		cat = Categories.query.filter_by(id=data['categories_id']).first()
+		if not cat:
+			return jsonify({
+				'error': 'Bad Request',
+				'message': 'Invalid categories'
+			}), 400
+		pro.name_product = data['name_product']
+		pro.description = data['description']
+		pro.categories_id = cat.id
 		pro.stock += data['stock']
+		if 'name_product' in data:
+			pro.name_product = data['name_product']
+		if 'description' in data:
+			pro.description = data['description']
+		if 'categories_id' in data:
+			pro.categories_id = cat.id
+		if 'stock' in data:
+			pro.stock += data['stock']
 		db.session.commit()
 		return {
 			'message': 'success update'
-		}
+		}, 201
 	elif user.is_admin is False:
 		return {
 			'message' : 'Your not admin! please check again.'
@@ -561,7 +574,7 @@ def get_order():
 		lis = []
 		if not order:
 			lis.append({'message' : 'Sorry, no history order'})
-			return jsonify(lis),200
+			return jsonify(lis),404
 		else:
 			for x in order:
 				lis.append(
@@ -610,7 +623,7 @@ def add_order():
 		if order >= 10:
 			return jsonify ({
 				'message': 'Please waiting for order'
-			}), 400
+			}), 503 #Service Unavailable
 		today = date.today()
 		order = Order(
 				user_id = user.id,
@@ -620,32 +633,42 @@ def add_order():
 				total_price= 0,
 				public_id=str(uuid.uuid4())
 			)
-		if not 'quantity' in data:
-			return {
-				'error': 'Bad request',
-				'message': 'Invalid Quantity'
-			}
-		for x in range(len(data['name_product'])):
-			pro = Products.query.filter_by(name_product=data['name_product'][x]).first()
+		for entry in range(len(data['order'])):
+			if not 'product_id' in data['order'][entry]:
+				return {
+					'error': 'Bad request',
+					'message':'Please input product ID'
+				}
+			if not 'quantity' in data['order'][entry]:
+				return {
+					'error': 'Bad request',
+					'message': 'Please input quantity'
+				}
+			pro = Products.query.filter_by(id=data['order'][entry]['product_id']).first()
 			if not pro:
 				return {
 					'error': 'Bad request',
-					'message': 'Invalid Name Products'
+					'message': 'Invalid Id Products'
 				}
 			if pro.stock == 0:
-				return jsonify ({
-					'message': 'Product not available'
-				}), 400
+				return jsonify({
+					'message' : pro.name_product+' stock not available'
+				}),400
 			orderdetail = OrderDetail(
 				product_id = pro.id,
-				quantity =  data['quantity'][x],
-				subtotal= data['quantity'][x] * pro.price,
+				product_name = pro.name_product,
+				quantity =  data['order'][entry]['quantity'],
+				subtotal= data['order'][entry]['quantity'] * pro.price,
 				public_id=str(uuid.uuid4())
 			)
 			order.orders.append(orderdetail)
 			order.total_price += orderdetail.subtotal
-			if pro.stock > 0 :
+			if pro.stock >= orderdetail.quantity :
 				pro.stock -= orderdetail.quantity
+			else:
+				return jsonify({
+					'message' : pro.name_product+' stock only '+str(pro.stock) 
+				}),400
 		db.session.add(order)
 		db.session.commit()
 		return {
@@ -662,6 +685,8 @@ def update_order(id):
 	allow = author_user(decode_var)[0]
 	user = User.query.filter_by(username=allow).first()
 	order = Order.query.filter_by(public_id=id).first_or_404()
+	orderd = OrderDetail.query.filter_by(order_id=order.id).first_or_404()
+	pro = Products.query.filter_by(id=orderd.product_id).first_or_404()
 	if not user:
 		return {
 			'message' : 'Please check your login details and try again.'
@@ -672,7 +697,7 @@ def update_order(id):
 		db.session.commit()
 		return {
 			'message': 'success'
-		}
+		},202
 	elif user.is_admin is False:
 		data = request.get_json()
 		order.status = data['status']
@@ -680,10 +705,12 @@ def update_order(id):
 			return {
 			'message' : 'Edit status complete just for admin'
 			}, 401
+		if order.status == 'Cancel':
+			pro.stock += orderd.quantity
 		db.session.commit()
 		return {
-			'message': 'success'
-		}
+		'message' : 'Successfuly cancelled order'
+		}, 202
 	else:
 		return {
 			'message' : 'UNAUTOHORIZED'
@@ -706,12 +733,11 @@ def delete_order(id):
 		db.session.commit()
 		return {
 			'success': 'Data deleted successfully'
-		},200
+		},202
 	elif user.is_admin is False:
 		return {
 			'message' : 'Your not admin! please check again.'
 		},401
-
 
 #------------------------------------- REPORTING
 
@@ -729,7 +755,7 @@ def get_mostuser():
 		lis = []
 		for x in most:
 			lis.append({'total_order' :x['total_order'], 'name': x['name']})
-		return jsonify(lis)
+		return jsonify(lis),200
 
 @app.route('/most-orders/')
 def get_mostorder():
@@ -744,5 +770,5 @@ def get_mostorder():
 		most = db.engine.execute("select o.product_id, SUM(o.quantity) as qt, pr.name_product from order_detail o left join products pr on o.product_id = pr.id group by o.product_id, pr.name_product ORDER BY qt DESC LIMIT 5;")
 		lis = []
 		for x in most:
-			lis.append({'total_sold': x['qt'], 'name': x['name_product']})
-		return jsonify(lis)
+			lis.append({'total_sold': x['qt'], 'name_product': x['name_product']})
+		return jsonify(lis), 200
