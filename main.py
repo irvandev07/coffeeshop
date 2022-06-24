@@ -57,8 +57,9 @@ class Products(db.Model):
 
 class Order(db.Model):
 	id = db.Column(db.Integer, primary_key=True, index=True)
-	user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 	public_id = db.Column(db.String, nullable=False)
+	user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+	user_name = db.Column(db.String, nullable=False)
 	date = db.Column(db.Date, nullable=False)
 	payment_type = db.Column(db.String(100), nullable=False)
 	status = db.Column(db.String(100), nullable=False)
@@ -163,7 +164,7 @@ def login_user():
 				'address': user.address,
 				'city': user.city,
 				'state': user.state,
-				'postcode': user.email,
+				'postcode': user.postcode,
 				'phone': user.phone,
 				'is_admin': user.is_admin
 			} for user in User.query.all()
@@ -178,7 +179,7 @@ def login_user():
 				'address': user.address,
 				'city': user.city,
 				'state': user.state,
-				'postcode': user.email,
+				'postcode': user.postcode,
 				'phone': user.phone,
 				'is_admin': user.is_admin
 			} 
@@ -203,15 +204,24 @@ def update_user():
 			}, 400
 		if not user:
 			return {'message' : 'Please check login detail!'}
-		user.name=data['name']
-		user.username=data['username']
-		user.password=data['password']
 		if 'name' in data:
 			user.name=data['name']
 		if 'username' in data:
 			user.username=data['username']
+		if 'email' in data:
+			user.email=data['email']
 		if 'password' in data:
 			user.password=data['password']
+		if 'address' in data:
+			user.address=data['address']
+		if 'city' in data:
+			user.city=data['city']
+		if 'state' in data:
+			user.state=data['state']
+		if 'postcode' in data:
+			user.postcode=data['postcode']
+		if 'phone' in data:
+			user.phone=data['phone']
 		db.session.commit()
 		return jsonify(
 			{
@@ -512,10 +522,6 @@ def update_products(id):
 				'error': 'Bad Request',
 				'message': 'Invalid categories'
 			}), 400
-		pro.name_product = data['name_product']
-		pro.description = data['description']
-		pro.categories_id = cat.id
-		pro.stock += data['stock']
 		if 'name_product' in data:
 			pro.name_product = data['name_product']
 		if 'description' in data:
@@ -526,7 +532,13 @@ def update_products(id):
 			pro.stock += data['stock']
 		db.session.commit()
 		return {
-			'message': 'success update'
+			'id': pro.public_id, 
+			'name': pro.name_product,
+			'categories': pro.categories.name_categories,
+			'price': pro.price,
+			'stock': pro.stock,
+			'description': pro.description,
+			'image': pro.image
 		}, 201
 	elif user.is_admin is False:
 		return {
@@ -627,6 +639,7 @@ def add_order():
 		today = date.today()
 		order = Order(
 				user_id = user.id,
+				user_name = user.name,
 				date = today,
 				payment_type=data.get('payment_type', 'Cashless'),
 				status= data.get('status', 'Active'),
@@ -675,7 +688,7 @@ def add_order():
 			'id': order.public_id, 
 			'name': order.users.name,
 			'total_price' : order.total_price,
-			'date' : order.date,
+			'date' : order.date.strftime('%d-%m-%Y'),
 			'status' : order.status
 		}, 201
 
@@ -700,7 +713,8 @@ def update_order(id):
 		},202
 	elif user.is_admin is False:
 		data = request.get_json()
-		order.status = data['status']
+		if 'status' in data:
+			order.status = data['status']
 		if data['status'] == 'Complete':
 			return {
 			'message' : 'Edit status complete just for admin'

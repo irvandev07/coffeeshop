@@ -37,19 +37,22 @@ db.session.commit()
 def author_user():
 	decode_var = request.headers.get('Authorization')
 	c = base64.b64decode(decode_var[6:])
-	e = c.decode("ascii")
+	e = c.decode("utf-8")
 	lis = e.split(':')
 	username = lis[0]
 	passw = lis [1]
 	user = User.query.filter_by(username=username).filter_by(password=passw).first()
-	if bcrypt.checkpw(passw):
-		print("match")
-	else:
-		print("does not match")	
-	# if not user:
-	# 	return 'Please check login detail'
-	# elif user:
-	# 	return [username, passw]
+	# passwd = User.query.filter_by(password=passw).first()
+	# password = passw.encode('utf-8')
+	# hashed = bcrypt.hashpw(password, salt = bcrypt.gensalt())
+	# if bcrypt.checkpw(password, hashed) in passwd:
+	# 	return {'message' : "match"}
+	# else:
+	# 	return {'message' : "does not match"}
+	if not user:
+		return 'Please check login detail'
+	elif user:
+		return [username, passw]
 
 @app.route("/")
 def home():
