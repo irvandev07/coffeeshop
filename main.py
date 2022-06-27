@@ -1,5 +1,4 @@
 import base64
-from cgitb import reset
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from datetime import date
@@ -388,7 +387,7 @@ def search_product():
 		data = request.get_json()
 		pro = data['product']
 		search = "%{}%".format(pro)
-		prods = Products.query.filter(Products.name_product.like(search)).all()
+		prods = Products.query.filter(Products.name_product.ilike(search)).all()
 		if not prods:
 			lis.append ({'message' : 'Did not find search'})
 			return jsonify(lis),404
